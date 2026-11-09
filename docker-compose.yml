@@ -2,10 +2,36 @@
 # Secrets: NEWT_ID / NEWT_SECRET come from Dokploy env, never committed.
 name: pangolin
 services:
+  # One-shot: renders config/*.tmpl from env (Pangolin/Traefik can't read env themselves).
+  # Runs on every deploy, so Dokploy's fresh clone needs no pre-rendered files.
+  render-config:
+    image: docker.io/alpine:3
+    container_name: pangolin-render-config
+    restart: "no"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+      PANGOLIN_PREFIX: ${PANGOLIN_PREFIX:?set PANGOLIN_PREFIX}
+      LE_EMAIL: ${LE_EMAIL:?set LE_EMAIL}
+      PANGOLIN_SECRET: ${PANGOLIN_SECRET:?set PANGOLIN_SECRET}
+    volumes:
+      - ./config:/config
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache gettext >/dev/null
+        for t in $$(find /config -name '*.tmpl'); do
+          envsubst '$${DOMAIN} $${PANGOLIN_PREFIX} $${LE_EMAIL} $${PANGOLIN_SECRET}' < "$$t" > "$${t%.tmpl}"
+        done
+
   pangolin:
     image: docker.io/fosrl/pangolin:1.26.0
     container_name: pangolin
     restart: unless-stopped
+    depends_on:
+      render-config:
+        condition: service_completed_successfully
     volumes:
       - ./config:/app/config
     healthcheck:
@@ -43,6 +69,8 @@ services:
     restart: unless-stopped
     network_mode: service:gerbil   # ports are published on gerbil
     depends_on:
+      render-config:
+        condition: service_completed_successfully
       pangolin:
         condition: service_healthy
     command: [--configFile=/etc/traefik/traefik_config.yml]

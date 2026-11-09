@@ -9,7 +9,7 @@ Internet ─ 80/443 ─► Pangolin Traefik (in gerbil netns) ─ SSO ─► dok
          └ 21820/51820 UDP ─► Gerbil ◄─ Newt (outbound) ─► <HOST_LAN_IP>:3724 / :8085
 ```
 
-`DOMAIN`, `PANGOLIN_PREFIX` (dashboard subdomain, default `pangolin`) and `LE_EMAIL` come from `.env`. Remaining placeholder: `<HOST_LAN_IP>`. Full background: `docs/pangolin-edge-wow-access.md`.
+`DOMAIN`, `PANGOLIN_PREFIX` (dashboard subdomain, default `pangolin`), `LE_EMAIL` and `PANGOLIN_SECRET` come from `.env`. Remaining placeholder: `<HOST_LAN_IP>`. Full background: `docs/pangolin-edge-wow-access.md`.
 
 ## Files
 | Path | Purpose |
@@ -17,15 +17,14 @@ Internet ─ 80/443 ─► Pangolin Traefik (in gerbil netns) ─ SSO ─► dok
 | `docker-compose.yml` | pangolin, gerbil, traefik, newt |
 | `config/config.yml.tmpl` | Pangolin config template (`allow_raw_resources` stays `false`) |
 | `config/traefik/` | Traefik static + dynamic `.tmpl` files |
-| `render.sh` | renders `.tmpl` files from `.env` (outputs gitignored) |
-| `.env.example` | `DOMAIN`, `PANGOLIN_PREFIX`, `LE_EMAIL`, `NEWT_ID`, `NEWT_SECRET` (copy to `.env`, never commit) |
+| `render.sh` | optional local render; compose does this itself via the `render-config` service |
+| `.env.example` | `DOMAIN`, `PANGOLIN_PREFIX`, `LE_EMAIL`, `PANGOLIN_SECRET`, `NEWT_ID`, `NEWT_SECRET` (copy to `.env`, never commit) |
 
 ## 0. Prerequisites
 - Dokploy running on the host, wildcard DNS `*.$DOMAIN` and `$PANGOLIN_PREFIX.$DOMAIN` pointing at your home IP.
 - Router forwards TCP 80/443 and **UDP 21820 + 51820** to the host.
 - **Snapshot/back up the host first.** Rollback = step 2 in reverse (unset the env vars, reload Traefik, restore `traefik.yml`).
-- `cp .env.example .env`, set `DOMAIN`, `PANGOLIN_PREFIX` and `LE_EMAIL`, run `./render.sh` (needs `envsubst`) to generate `config/config.yml`, `config/traefik/traefik_config.yml` and `config/traefik/dynamic_config.yml` from the `.tmpl` files. Re-run when any of them change.
-- Fill the secret: `grep -rn "<GENERATE" config` (`openssl rand -hex 32` goes in `server.secret` in `config/config.yml.tmpl`).
+- Set `DOMAIN`, `PANGOLIN_PREFIX`, `LE_EMAIL` and `PANGOLIN_SECRET` (`openssl rand -hex 32`) in Dokploy's Environment tab (or `.env` locally). The `render-config` service generates `config/config.yml`, `traefik_config.yml` and `dynamic_config.yml` from the `.tmpl` files on every deploy.
 
 ## 1. Move Dokploy's Traefik off 80/443
 
@@ -79,7 +78,7 @@ Apps are unreachable from the internet from step 3 here until the HTTP resources
    Dokploy **File Mounts** or a fixed host path for `config/` so redeploys don't wipe the DB and certs
    (Dokploy cleans absolute bind paths and re-clones repos, see its compose docs). Back this directory up:
    it is now critical infrastructure.
-   Rendered configs are gitignored, so Dokploy's clone won't contain them: run `./render.sh` once in the deployed `config` location on the host (or create them as File Mounts).
+   Rendered configs are gitignored; the `render-config` init service creates them from the `.tmpl` files and your env vars on each deploy, so nothing needs to exist on the host beforehand.
 3. Don't set `NEWT_ID/NEWT_SECRET` yet. Deploy only the first three services:
    ```bash
    docker compose up -d pangolin gerbil traefik

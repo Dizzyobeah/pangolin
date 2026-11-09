@@ -1,7 +1,6 @@
 # Cutover runbook (placeholder: <HOST_LAN_IP>)
 
-Set DOMAIN, PANGOLIN_PREFIX and LE_EMAIL in .env, run ./render.sh; fill the secret (`grep -rn "<GENERATE" config`).
-Secret: `openssl rand -hex 32` into `config/config.yml` `server.secret`.
+Set DOMAIN, PANGOLIN_PREFIX, LE_EMAIL, PANGOLIN_SECRET in the Dokploy env (compose renders the configs itself).
 
 ## 0. Snapshot host / back up dokploy-traefik config. Rollback = restore its 80/443 bindings.
 
