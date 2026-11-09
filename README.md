@@ -94,8 +94,8 @@ The compose file mounts all runtime state from `../files/pangolin` instead of th
 
 | Host path (`../files/pangolin/...`) | Contents | Created by |
 |---|---|---|
-| `config.yml` | Pangolin config, rendered from `config/config.yml.tmpl` | render-config |
-| `traefik/traefik_config.yml`, `traefik/dynamic_config.yml` | Pangolin's Traefik config | render-config |
+| `config.yml` | Pangolin config, rendered from `config/config.yml.tmpl` | render-config (first deploy) |
+| `traefik/traefik_config.yml`, `traefik/dynamic_config.yml` | Pangolin's Traefik config | render-config (first deploy) |
 | `db/` | Pangolin SQLite database. **Losing it means losing users and resources.** | pangolin |
 | `key` | Gerbil WireGuard key. Losing it breaks every client's tunnel. | gerbil |
 | `letsencrypt/` | TLS certificates | traefik |
@@ -105,6 +105,25 @@ through the UI. This stack needs whole directories (the database, certificates a
 docs say that the repo folder is cleared on each AutoDeploy git clone, while bind mounts under `../files` persist
 across deploys. So the compose file uses `../files`, and nothing needs to be created in the UI. Back up
 `../files/pangolin` on the host.
+
+**Render-once behaviour:** `render-config` writes each of the three config files only if it does not exist yet.
+Changing `DOMAIN`, `PANGOLIN_PREFIX`, `LE_EMAIL` or `PANGOLIN_SECRET` later does **not** update existing files.
+To pick up a change, edit the file on the host (`../files/pangolin/...`) or use Option B below, then restart the services.
+
+### 2.2a Option B: edit the config files in Dokploy File Mounts
+Use this if you want to edit the rendered config in the Dokploy UI instead of on the host.
+Dokploy writes File Mounts to the same folder (`files/` next to the compose code), so they override the rendered files.
+
+1. Open the compose service → **Advanced → Mounts → Add Mount → File**.
+2. File path: `pangolin/config.yml` (then repeat for `pangolin/traefik/traefik_config.yml` and `pangolin/traefik/dynamic_config.yml`).
+3. Content: paste the rendered text. It is in `files/pangolin/` inside your Dokploy compose folder on the host
+   (the folder that holds `code/`). Use `cat` on that file over SSH, or fill in the values from `config/*.tmpl` yourself.
+4. Save. Redeploy or restart `pangolin`, `gerbil` and `traefik`.
+
+Trade-offs:
+- The content is static text. The env vars no longer apply to that file.
+- The `server.secret` (`PANGOLIN_SECRET`) ends up stored in Dokploy's database. Keep the Dokploy instance and its backups protected.
+- I have not verified the Mounts screen in the Dokploy UI. The file location is taken from Dokploy's source (`packages/server/src/services/mount.ts`).
 
 ### 2.3 Deploy the first three services
 1. Deploy the compose app with `NEWT_ID` and `NEWT_SECRET` empty. Dokploy starts `render-config`, then `pangolin`,
