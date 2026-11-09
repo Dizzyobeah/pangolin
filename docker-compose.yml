@@ -1,13 +1,42 @@
-# Pangolin edge for Dokploy host. Deploy as a Dokploy compose app (or `docker compose up -d`).
-# Secrets: NEWT_ID / NEWT_SECRET come from Dokploy env, never committed.
+# Pangolin edge for Dokploy host. Deploy as a Dokploy compose app.
+# Runtime state (config, db, certs, Gerbil key) lives in ../files/pangolin, which survives
+# Dokploy's git re-clone on each deploy. Back that folder up.
 name: pangolin
 services:
+  # One-shot: renders the .tmpl files from this repo into ../files/pangolin using env vars.
+  render-config:
+    image: docker.io/alpine:3
+    container_name: pangolin-render-config
+    restart: "no"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+      PANGOLIN_PREFIX: ${PANGOLIN_PREFIX:?set PANGOLIN_PREFIX}
+      LE_EMAIL: ${LE_EMAIL:?set LE_EMAIL}
+      PANGOLIN_SECRET: ${PANGOLIN_SECRET:?set PANGOLIN_SECRET}
+    volumes:
+      - ./config:/templates:ro
+      - ../files/pangolin:/out
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache gettext >/dev/null
+        mkdir -p /out/traefik /out/db /out/letsencrypt
+        V='$${DOMAIN} $${PANGOLIN_PREFIX} $${LE_EMAIL} $${PANGOLIN_SECRET}'
+        envsubst "$$V" < /templates/config.yml.tmpl > /out/config.yml
+        envsubst "$$V" < /templates/traefik/traefik_config.yml.tmpl > /out/traefik/traefik_config.yml
+        envsubst "$$V" < /templates/traefik/dynamic_config.yml.tmpl > /out/traefik/dynamic_config.yml
+
   pangolin:
     image: docker.io/fosrl/pangolin:1.26.0
     container_name: pangolin
     restart: unless-stopped
+    depends_on:
+      render-config:
+        condition: service_completed_successfully
     volumes:
-      - ./config:/app/config
+      - ../files/pangolin:/app/config
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/"]
       interval: 10s
@@ -26,7 +55,7 @@ services:
       - --generateAndSaveKeyTo=/var/config/key
       - --remoteConfig=http://pangolin:3001/api/v1/
     volumes:
-      - ./config/:/var/config
+      - ../files/pangolin:/var/config
     cap_add: [NET_ADMIN, SYS_MODULE]
     ports:
       - 51820:51820/udp
@@ -43,12 +72,14 @@ services:
     restart: unless-stopped
     network_mode: service:gerbil   # ports are published on gerbil
     depends_on:
+      render-config:
+        condition: service_completed_successfully
       pangolin:
         condition: service_healthy
     command: [--configFile=/etc/traefik/traefik_config.yml]
     volumes:
-      - ./config/traefik:/etc/traefik:ro
-      - ./config/letsencrypt:/letsencrypt
+      - ../files/pangolin/traefik:/etc/traefik:ro
+      - ../files/pangolin/letsencrypt:/letsencrypt
 
   newt:
     image: docker.io/fosrl/newt:1.20.0
@@ -60,7 +91,7 @@ services:
       NEWT_SECRET: ${NEWT_SECRET}
     networks:
       - dokploy-network
-    # Start only after the site exists in the Pangolin UI: `docker compose up -d newt`
+    # Start only after the site exists in the Pangolin UI.
 
 networks:
   default:

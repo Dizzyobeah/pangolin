@@ -16,7 +16,7 @@ domains:
         base_domain: "${DOMAIN}"
 
 server:
-    secret: "<GENERATE: openssl rand -hex 32>"
+    secret: "${PANGOLIN_SECRET}"
     cors:
         origins: ["https://${PANGOLIN_PREFIX}.${DOMAIN}"]
         methods: ["GET", "POST", "PUT", "DELETE", "PATCH"]

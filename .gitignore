@@ -1,9 +1,1 @@
-config/db/
-config/key
-config/letsencrypt/
-config/logs/
-config/traefik/logs/
 .env
-config/config.yml
-config/traefik/dynamic_config.yml
-config/traefik/traefik_config.yml

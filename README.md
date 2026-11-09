@@ -9,23 +9,22 @@ Internet ─ 80/443 ─► Pangolin Traefik (in gerbil netns) ─ SSO ─► dok
          └ 21820/51820 UDP ─► Gerbil ◄─ Newt (outbound) ─► <HOST_LAN_IP>:3724 / :8085
 ```
 
-`DOMAIN`, `PANGOLIN_PREFIX` (dashboard subdomain, default `pangolin`) and `LE_EMAIL` come from `.env`. Remaining placeholder: `<HOST_LAN_IP>`. Full background: `docs/pangolin-edge-wow-access.md`.
+`DOMAIN`, `PANGOLIN_PREFIX` (dashboard subdomain, default `pangolin`), `LE_EMAIL` and `PANGOLIN_SECRET` come from `.env`. Remaining placeholder: `<HOST_LAN_IP>`. Full background: `docs/pangolin-edge-wow-access.md`.
 
 ## Files
 | Path | Purpose |
 |---|---|
-| `docker-compose.yml` | pangolin, gerbil, traefik, newt |
-| `config/config.yml.tmpl` | Pangolin config template (`allow_raw_resources` stays `false`) |
-| `config/traefik/` | Traefik static + dynamic `.tmpl` files |
-| `render.sh` | renders `.tmpl` files from `.env` (outputs gitignored) |
-| `.env.example` | `DOMAIN`, `PANGOLIN_PREFIX`, `LE_EMAIL`, `NEWT_ID`, `NEWT_SECRET` (copy to `.env`, never commit) |
+| `docker-compose.yml` | render-config (init), pangolin, gerbil, traefik, newt |
+| `config/*.tmpl` | Pangolin + Traefik config templates, rendered on deploy |
+| `.env.example` | `DOMAIN`, `PANGOLIN_PREFIX`, `LE_EMAIL`, `PANGOLIN_SECRET`, `NEWT_ID`, `NEWT_SECRET` |
+
+Runtime state is **not** in the repo. It lives in `../files/pangolin/` on the host (see "Persistent storage" below).
 
 ## 0. Prerequisites
 - Dokploy running on the host, wildcard DNS `*.$DOMAIN` and `$PANGOLIN_PREFIX.$DOMAIN` pointing at your home IP.
 - Router forwards TCP 80/443 and **UDP 21820 + 51820** to the host.
-- **Snapshot/back up the host first.** Rollback = step 2 in reverse (unset the env vars, reload Traefik, restore `traefik.yml`).
-- `cp .env.example .env`, set `DOMAIN`, `PANGOLIN_PREFIX` and `LE_EMAIL`, run `./render.sh` (needs `envsubst`) to generate `config/config.yml`, `config/traefik/traefik_config.yml` and `config/traefik/dynamic_config.yml` from the `.tmpl` files. Re-run when any of them change.
-- Fill the secret: `grep -rn "<GENERATE" config` (`openssl rand -hex 32` goes in `server.secret` in `config/config.yml.tmpl`).
+- **Snapshot/back up the host first** (including `files/pangolin` once it exists). Rollback = step 2 in reverse (unset the env vars, reload Traefik, restore `traefik.yml`).
+- Set the env vars in Dokploy (see step 2.1). `PANGOLIN_SECRET`: generate with `openssl rand -hex 32`.
 
 ## 1. Move Dokploy's Traefik off 80/443
 
@@ -74,22 +73,53 @@ Steps (chosen ports: HTTP 8081, HTTPS 8444, HTTP/3 8444):
 Apps are unreachable from the internet from step 3 here until the HTTP resources exist (section 3, step 2). Use a maintenance window.
 
 ## 2. Deploy the Pangolin stack in Dokploy
-1. Dokploy → Project → **Create Service → Compose**, source = this repo (or paste `docker-compose.yml`).
-2. The compose file joins the external `dokploy-network` (already exists). Config lives in `./config`; use
-   Dokploy **File Mounts** or a fixed host path for `config/` so redeploys don't wipe the DB and certs
-   (Dokploy cleans absolute bind paths and re-clones repos, see its compose docs). Back this directory up:
-   it is now critical infrastructure.
-   Rendered configs are gitignored, so Dokploy's clone won't contain them: run `./render.sh` once in the deployed `config` location on the host (or create them as File Mounts).
-3. Don't set `NEWT_ID/NEWT_SECRET` yet. Deploy only the first three services:
-   ```bash
-   docker compose up -d pangolin gerbil traefik
-   docker compose logs pangolin     # copy the setup token
+
+### 2.1 Create the compose app and environment
+1. Dokploy → your project → **Create Service → Compose**. Source: this git repo, branch `main`
+   (or the branch with the stack), compose path `docker-compose.yml`.
+2. Open the service's **Environment** tab and set:
+   ```env
+   DOMAIN=example.com
+   PANGOLIN_PREFIX=pangolin
+   LE_EMAIL=you@example.com
+   PANGOLIN_SECRET=<openssl rand -hex 32>
+   NEWT_ID=<leave empty until step 3>
+   NEWT_SECRET=<leave empty until step 3>
    ```
-   (In the Dokploy UI, deploy then stop/disable `newt`, or temporarily comment it out.)
-4. Open `https://$PANGOLIN_PREFIX.$DOMAIN/auth/initial-setup`, enter the token, create the admin and an org.
+   These are written to a `.env` next to the compose file and read by the compose file. They are not
+   injected into containers on their own, but the compose file passes them to each service that needs them.
+
+### 2.2 Persistent storage (why there are no File Mounts)
+The compose file mounts all runtime state from `../files/pangolin` instead of the repo folder:
+
+| Host path (`../files/pangolin/...`) | Contents | Created by |
+|---|---|---|
+| `config.yml` | Pangolin config, rendered from `config/config.yml.tmpl` | render-config |
+| `traefik/traefik_config.yml`, `traefik/dynamic_config.yml` | Pangolin's Traefik config | render-config |
+| `db/` | Pangolin SQLite database. **Losing it means losing users and resources.** | pangolin |
+| `key` | Gerbil WireGuard key. Losing it breaks every client's tunnel. | gerbil |
+| `letsencrypt/` | TLS certificates | traefik |
+
+Why not Dokploy **File Mounts**: File Mounts (Advanced → Mounts) are meant for individual files taken from the repo
+through the UI. This stack needs whole directories (the database, certificates and key) to persist. Dokploy's
+docs say that the repo folder is cleared on each AutoDeploy git clone, while bind mounts under `../files` persist
+across deploys. So the compose file uses `../files`, and nothing needs to be created in the UI. Back up
+`../files/pangolin` on the host.
+
+### 2.3 Deploy the first three services
+1. Deploy the compose app with `NEWT_ID` and `NEWT_SECRET` empty. Dokploy starts `render-config`, then `pangolin`,
+   `gerbil` and `traefik`. `newt` will fail to start without its ID and secret. That is expected for now.
+2. Check the logs. `pangolin` should start without "No configuration file found". Then copy the setup token:
+   ```bash
+   docker logs pangolin 2>&1 | grep -i token
+   ```
+3. Open `https://$PANGOLIN_PREFIX.$DOMAIN/auth/initial-setup`, enter the token, create the admin and an org.
+
+If `pangolin` still fails with "No configuration file found", check that `render-config` finished with exit code 0
+and that `../files/pangolin/config.yml` exists on the host.
 
 ## 3. Site, web apps, WoW
-1. **Sites → Add** a Newt site, copy ID/secret into Dokploy env (`NEWT_ID`, `NEWT_SECRET`), start `newt`.
+1. **Sites → Add** a Newt site, copy ID/secret into the Dokploy Environment tab (`NEWT_ID`, `NEWT_SECRET`), then redeploy so `newt` starts.
    The site should show *online*.
 2. **HTTP resources** (SSO on): one per app, e.g. `dokploy.$DOMAIN` → `http://dokploy-traefik:8081`
    (Host header is preserved, so Dokploy's routing still works). *Not* port 80 anymore.
