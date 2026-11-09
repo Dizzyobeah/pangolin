@@ -9,23 +9,23 @@ Internet ─ 80/443 ─► Pangolin Traefik (in gerbil netns) ─ SSO ─► dok
          └ 21820/51820 UDP ─► Gerbil ◄─ Newt (outbound) ─► <HOST_LAN_IP>:3724 / :8085
 ```
 
-`DOMAIN` comes from `.env`. Remaining placeholders: `<LE_EMAIL>`, `<HOST_LAN_IP>`. Full background: `docs/pangolin-edge-wow-access.md`.
+`DOMAIN` and `LE_EMAIL` come from `.env`. Remaining placeholder: `<HOST_LAN_IP>`. Full background: `docs/pangolin-edge-wow-access.md`.
 
 ## Files
 | Path | Purpose |
 |---|---|
 | `docker-compose.yml` | pangolin, gerbil, traefik, newt |
 | `config/config.yml.tmpl` | Pangolin config template (`allow_raw_resources` stays `false`) |
-| `config/traefik/` | Traefik static config + `dynamic_config.yml.tmpl` |
+| `config/traefik/` | Traefik static + dynamic `.tmpl` files |
 | `render.sh` | renders `.tmpl` files from `.env` (outputs gitignored) |
-| `.env.example` | `DOMAIN`, `NEWT_ID`, `NEWT_SECRET` (copy to `.env`, never commit) |
+| `.env.example` | `DOMAIN`, `LE_EMAIL`, `NEWT_ID`, `NEWT_SECRET` (copy to `.env`, never commit) |
 
 ## 0. Prerequisites
 - Dokploy running on the host, wildcard DNS `*.$DOMAIN` and `pangolin.$DOMAIN` pointing at your home IP.
 - Router forwards TCP 80/443 and **UDP 21820 + 51820** to the host.
 - **Snapshot/back up the host first.** Rollback = step 2 in reverse (unset the env vars, reload Traefik, restore `traefik.yml`).
-- `cp .env.example .env`, set `DOMAIN`, run `./render.sh` (needs `envsubst`) to generate `config/config.yml` and `config/traefik/dynamic_config.yml` from the `.tmpl` files. Re-run when `DOMAIN` changes.
-- Fill the rest: `grep -rn '<LE_EMAIL>\|<GENERATE' config` (`openssl rand -hex 32` goes in `server.secret` in `config/config.yml.tmpl`).
+- `cp .env.example .env`, set `DOMAIN` and `LE_EMAIL`, run `./render.sh` (needs `envsubst`) to generate `config/config.yml`, `config/traefik/traefik_config.yml` and `config/traefik/dynamic_config.yml` from the `.tmpl` files. Re-run when `DOMAIN` or `LE_EMAIL` changes.
+- Fill the secret: `grep -rn "<GENERATE" config` (`openssl rand -hex 32` goes in `server.secret` in `config/config.yml.tmpl`).
 
 ## 1. Move Dokploy's Traefik off 80/443
 

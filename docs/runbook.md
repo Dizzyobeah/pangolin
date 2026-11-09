@@ -1,6 +1,6 @@
 # Cutover runbook (placeholders: <LE_EMAIL>, <HOST_LAN_IP>)
 
-Set DOMAIN in .env, run ./render.sh; fill the rest: `grep -rn '<LE_EMAIL>\|<GENERATE' config`.
+Set DOMAIN and LE_EMAIL in .env, run ./render.sh; fill the secret (`grep -rn "<GENERATE" config`).
 Secret: `openssl rand -hex 32` into `config/config.yml` `server.secret`.
 
 ## 0. Snapshot host / back up dokploy-traefik config. Rollback = restore its 80/443 bindings.

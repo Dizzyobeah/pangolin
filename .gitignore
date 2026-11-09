@@ -6,3 +6,4 @@ config/traefik/logs/
 .env
 config/config.yml
 config/traefik/dynamic_config.yml
+config/traefik/traefik_config.yml
