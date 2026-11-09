@@ -70,7 +70,7 @@ Steps (chosen ports: HTTP 8081, HTTPS 8444, HTTP/3 8444):
    Let's Encrypt HTTP-01 no longer reaches Dokploy's Traefik. The Dokploy UI itself is then only reachable via Pangolin
    (or `http://<HOST_LAN_IP>:3000` on the LAN, keep this as your escape hatch).
 
-Apps are unreachable from the internet between steps 3 and 4 of section 3 below. Do this in a maintenance window.
+Apps are unreachable from the internet from step 3 here until the HTTP resources exist (section 3, step 2). Use a maintenance window.
 
 ## 2. Deploy the Pangolin stack in Dokploy
 1. Dokploy → Project → **Create Service → Compose**, source = this repo (or paste `docker-compose.yml`).
