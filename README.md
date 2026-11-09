@@ -112,13 +112,30 @@ To pick up a change, edit the file on the host (`../files/pangolin/...`) or use 
 
 ### 2.2a Option B: edit the config files in Dokploy File Mounts
 Use this if you want to edit the rendered config in the Dokploy UI instead of on the host.
-Dokploy writes File Mounts to the same folder (`files/` next to the compose code), so they override the rendered files.
+Dokploy writes File Mounts to the same folder as the rendered files, so a non-empty File Mount overrides the rendered file.
 
-1. Open the compose service → **Advanced → Mounts → Add Mount → File**.
-2. File path: `pangolin/config.yml` (then repeat for `pangolin/traefik/traefik_config.yml` and `pangolin/traefik/dynamic_config.yml`).
-3. Content: paste the rendered text. It is in `files/pangolin/` inside your Dokploy compose folder on the host
-   (the folder that holds `code/`). Use `cat` on that file over SSH, or fill in the values from `config/*.tmpl` yourself.
-4. Save. Redeploy or restart `pangolin`, `gerbil` and `traefik`.
+**Do the first deploy (2.3) before you create any File Mount.** The rendered files only exist after `render-config` has run.
+
+1. Copy the rendered content. The containers have fixed names, so this works from a shell on the host or from the Dokploy terminal:
+   ```bash
+   docker exec pangolin cat /app/config/config.yml
+   docker exec traefik  cat /etc/traefik/traefik_config.yml
+   docker exec traefik  cat /etc/traefik/dynamic_config.yml
+   ```
+   On the host the same files are in `/etc/dokploy/compose/<appName>/files/pangolin/`. `<appName>` is the compose
+   service's app name in Dokploy (`ls /etc/dokploy/compose/` lists them).
+2. Open the compose service → **Advanced → Mounts → Add Mount → File**.
+3. File path `pangolin/config.yml`, content = the output of the first command. Repeat with
+   `pangolin/traefik/traefik_config.yml` and `pangolin/traefik/dynamic_config.yml`.
+   **Paste the content before saving.** An empty mount writes an empty file. `render-config` re-renders empty
+   files on the next deploy, which replaces the mount content with the rendered version.
+4. Redeploy, or restart `pangolin`, `gerbil` and `traefik`.
+
+**If the files are missing or empty:**
+- `ls -la /etc/dokploy/compose/<appName>/files/pangolin/`. If there is no `files/pangolin`, `render-config` never ran:
+  check the deploy log for `set DOMAIN` (or another missing env var) and `docker logs pangolin-render-config`.
+- If a file is empty, it was probably created by a File Mount saved without content. Redeploy: `render-config`
+  fills empty files. Then copy the content (step 1) and paste it into the mount.
 
 Trade-offs:
 - The content is static text. The env vars no longer apply to that file.
