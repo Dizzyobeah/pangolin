@@ -55,7 +55,7 @@ services:
     container_name: newt
     restart: unless-stopped
     environment:
-      PANGOLIN_ENDPOINT: https://pangolin.<DOMAIN>
+      PANGOLIN_ENDPOINT: https://${PANGOLIN_PREFIX}.${DOMAIN}
       NEWT_ID: ${NEWT_ID}
       NEWT_SECRET: ${NEWT_SECRET}
     networks:
