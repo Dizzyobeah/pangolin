@@ -100,7 +100,7 @@ The compose file mounts all runtime state from `../files/pangolin` instead of th
 | `key` | Gerbil WireGuard key. Losing it breaks every client's tunnel. | gerbil |
 | `letsencrypt/` | TLS certificates | traefik |
 
-Why not Dokploy **File Mounts**: File Mounts (Advanced → Mounts) are for individual files that you upload
+Why not Dokploy **File Mounts**: File Mounts (Advanced → Mounts) are meant for individual files taken from the repo
 through the UI. This stack needs whole directories (the database, certificates and key) to persist. Dokploy's
 docs say that the repo folder is cleared on each AutoDeploy git clone, while bind mounts under `../files` persist
 across deploys. So the compose file uses `../files`, and nothing needs to be created in the UI. Back up
