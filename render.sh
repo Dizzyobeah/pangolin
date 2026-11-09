@@ -3,8 +3,8 @@
 set -eu
 cd "$(dirname "$0")"
 set -a; . ./.env; set +a
-: "${DOMAIN:?set DOMAIN in .env}" "${LE_EMAIL:?set LE_EMAIL in .env}"
+: "${DOMAIN:?set DOMAIN in .env}" "${LE_EMAIL:?set LE_EMAIL in .env}" "${PANGOLIN_PREFIX:?set PANGOLIN_PREFIX in .env}"
 for t in config/config.yml.tmpl config/traefik/traefik_config.yml.tmpl config/traefik/dynamic_config.yml.tmpl; do
-  envsubst '${DOMAIN} ${LE_EMAIL}' < "$t" > "${t%.tmpl}"
+  envsubst '${DOMAIN} ${LE_EMAIL} ${PANGOLIN_PREFIX}' < "$t" > "${t%.tmpl}"
 done
 echo "rendered for DOMAIN=$DOMAIN"

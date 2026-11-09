@@ -9,7 +9,7 @@ Internet ─ 80/443 ─► Pangolin Traefik (in gerbil netns) ─ SSO ─► dok
          └ 21820/51820 UDP ─► Gerbil ◄─ Newt (outbound) ─► <HOST_LAN_IP>:3724 / :8085
 ```
 
-`DOMAIN` and `LE_EMAIL` come from `.env`. Remaining placeholder: `<HOST_LAN_IP>`. Full background: `docs/pangolin-edge-wow-access.md`.
+`DOMAIN`, `PANGOLIN_PREFIX` (dashboard subdomain, default `pangolin`) and `LE_EMAIL` come from `.env`. Remaining placeholder: `<HOST_LAN_IP>`. Full background: `docs/pangolin-edge-wow-access.md`.
 
 ## Files
 | Path | Purpose |
@@ -18,13 +18,13 @@ Internet ─ 80/443 ─► Pangolin Traefik (in gerbil netns) ─ SSO ─► dok
 | `config/config.yml.tmpl` | Pangolin config template (`allow_raw_resources` stays `false`) |
 | `config/traefik/` | Traefik static + dynamic `.tmpl` files |
 | `render.sh` | renders `.tmpl` files from `.env` (outputs gitignored) |
-| `.env.example` | `DOMAIN`, `LE_EMAIL`, `NEWT_ID`, `NEWT_SECRET` (copy to `.env`, never commit) |
+| `.env.example` | `DOMAIN`, `PANGOLIN_PREFIX`, `LE_EMAIL`, `NEWT_ID`, `NEWT_SECRET` (copy to `.env`, never commit) |
 
 ## 0. Prerequisites
-- Dokploy running on the host, wildcard DNS `*.$DOMAIN` and `pangolin.$DOMAIN` pointing at your home IP.
+- Dokploy running on the host, wildcard DNS `*.$DOMAIN` and `$PANGOLIN_PREFIX.$DOMAIN` pointing at your home IP.
 - Router forwards TCP 80/443 and **UDP 21820 + 51820** to the host.
 - **Snapshot/back up the host first.** Rollback = step 2 in reverse (unset the env vars, reload Traefik, restore `traefik.yml`).
-- `cp .env.example .env`, set `DOMAIN` and `LE_EMAIL`, run `./render.sh` (needs `envsubst`) to generate `config/config.yml`, `config/traefik/traefik_config.yml` and `config/traefik/dynamic_config.yml` from the `.tmpl` files. Re-run when `DOMAIN` or `LE_EMAIL` changes.
+- `cp .env.example .env`, set `DOMAIN`, `PANGOLIN_PREFIX` and `LE_EMAIL`, run `./render.sh` (needs `envsubst`) to generate `config/config.yml`, `config/traefik/traefik_config.yml` and `config/traefik/dynamic_config.yml` from the `.tmpl` files. Re-run when any of them change.
 - Fill the secret: `grep -rn "<GENERATE" config` (`openssl rand -hex 32` goes in `server.secret` in `config/config.yml.tmpl`).
 
 ## 1. Move Dokploy's Traefik off 80/443
@@ -86,7 +86,7 @@ Apps are unreachable from the internet from step 3 here until the HTTP resources
    docker compose logs pangolin     # copy the setup token
    ```
    (In the Dokploy UI, deploy then stop/disable `newt`, or temporarily comment it out.)
-4. Open `https://pangolin.$DOMAIN/auth/initial-setup`, enter the token, create the admin and an org.
+4. Open `https://$PANGOLIN_PREFIX.$DOMAIN/auth/initial-setup`, enter the token, create the admin and an org.
 
 ## 3. Site, web apps, WoW
 1. **Sites → Add** a Newt site, copy ID/secret into Dokploy env (`NEWT_ID`, `NEWT_SECRET`), start `newt`.
@@ -102,7 +102,7 @@ Apps are unreachable from the internet from step 3 here until the HTTP resources
    If their LAN uses the same subnet as yours, routes collide: use an uncommon subnet or a secondary IP for WoW.
 
 ## 4. Verify
-- `https://pangolin.$DOMAIN` has a valid cert; `https://dokploy.$DOMAIN` shows the Pangolin login first.
+- `https://$PANGOLIN_PREFIX.$DOMAIN` has a valid cert; `https://dokploy.$DOMAIN` shows the Pangolin login first.
 - From mobile data, no client: `nc -vz <public-ip> 3724` / `8085` fail. `nmap -p 1-10000 <ip>` shows only 80/443;
   `nmap -sU -p 21820,51820 <ip>` shows those open|filtered.
 - With the client as a `wow-players` user: `nc -vz <HOST_LAN_IP> 3724` and `8085` succeed, WoW logs in and enters the world.

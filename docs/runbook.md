@@ -1,6 +1,6 @@
 # Cutover runbook (placeholder: <HOST_LAN_IP>)
 
-Set DOMAIN and LE_EMAIL in .env, run ./render.sh; fill the secret (`grep -rn "<GENERATE" config`).
+Set DOMAIN, PANGOLIN_PREFIX and LE_EMAIL in .env, run ./render.sh; fill the secret (`grep -rn "<GENERATE" config`).
 Secret: `openssl rand -hex 32` into `config/config.yml` `server.secret`.
 
 ## 0. Snapshot host / back up dokploy-traefik config. Rollback = restore its 80/443 bindings.
@@ -13,9 +13,9 @@ Check after: `docker ps --format '{{.Names}} {{.Ports}}' | grep traefik`; `sudo 
 Then set existing Dokploy domains to HTTP only (HTTPS off) — Pangolin terminates TLS.
 
 ## 2. Deploy
-Router: forward TCP 80/443 + UDP 21820, 51820. DNS: `pangolin.$DOMAIN` and `*.$DOMAIN` -> home IP.
+Router: forward TCP 80/443 + UDP 21820, 51820. DNS: `$PANGOLIN_PREFIX.$DOMAIN` and `*.$DOMAIN` -> home IP.
 `docker compose up -d pangolin gerbil traefik`; `docker compose logs pangolin` for setup token;
-open `https://pangolin.$DOMAIN/auth/initial-setup`.
+open `https://$PANGOLIN_PREFIX.$DOMAIN/auth/initial-setup`.
 
 ## 3. Site + resources (Pangolin UI)
 Create a Newt site -> put NEWT_ID/NEWT_SECRET in Dokploy env -> `docker compose up -d newt`.
