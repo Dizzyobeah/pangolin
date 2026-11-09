@@ -24,8 +24,8 @@ services:
         apk add --no-cache gettext >/dev/null
         mkdir -p /out/traefik /out/db /out/letsencrypt
         V='$${DOMAIN} $${PANGOLIN_PREFIX} $${LE_EMAIL} $${PANGOLIN_SECRET}'
-        # Render only files that don't exist yet, so a Dokploy File Mount (same folder) overrides a rendered file.
-        render() { [ -f "$$2" ] || envsubst "$$V" < "$$1" > "$$2"; }
+        # Render only files that are missing or empty, so a non-empty Dokploy File Mount (same folder) overrides a rendered file.
+        render() { [ -s "$$2" ] || envsubst "$$V" < "$$1" > "$$2"; }
         render /templates/config.yml.tmpl /out/config.yml
         render /templates/traefik/traefik_config.yml.tmpl /out/traefik/traefik_config.yml
         render /templates/traefik/dynamic_config.yml.tmpl /out/traefik/dynamic_config.yml
