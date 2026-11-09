@@ -1,0 +1,70 @@
+# Pangolin edge for Dokploy host. Deploy as a Dokploy compose app (or `docker compose up -d`).
+# Secrets: NEWT_ID / NEWT_SECRET come from Dokploy env, never committed.
+name: pangolin
+services:
+  pangolin:
+    image: docker.io/fosrl/pangolin:1.26.0
+    container_name: pangolin
+    restart: unless-stopped
+    volumes:
+      - ./config:/app/config
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+
+  gerbil:
+    image: docker.io/fosrl/gerbil:1.6.0
+    container_name: gerbil
+    restart: unless-stopped
+    depends_on:
+      pangolin:
+        condition: service_healthy
+    command:
+      - --reachableAt=http://gerbil:3004
+      - --generateAndSaveKeyTo=/var/config/key
+      - --remoteConfig=http://pangolin:3001/api/v1/
+    volumes:
+      - ./config/:/var/config
+    cap_add: [NET_ADMIN, SYS_MODULE]
+    ports:
+      - 51820:51820/udp
+      - 21820:21820/udp
+      - 443:443
+      - 80:80
+    networks:
+      - default
+      - dokploy-network   # lets Pangolin's Traefik reach dokploy-traefik
+
+  traefik:
+    image: docker.io/traefik:v3.7.16
+    container_name: traefik
+    restart: unless-stopped
+    network_mode: service:gerbil   # ports are published on gerbil
+    depends_on:
+      pangolin:
+        condition: service_healthy
+    command: [--configFile=/etc/traefik/traefik_config.yml]
+    volumes:
+      - ./config/traefik:/etc/traefik:ro
+      - ./config/letsencrypt:/letsencrypt
+
+  newt:
+    image: docker.io/fosrl/newt:1.20.0
+    container_name: newt
+    restart: unless-stopped
+    environment:
+      PANGOLIN_ENDPOINT: https://pangolin.<DOMAIN>
+      NEWT_ID: ${NEWT_ID}
+      NEWT_SECRET: ${NEWT_SECRET}
+    networks:
+      - dokploy-network
+    # Start only after the site exists in the Pangolin UI: `docker compose up -d newt`
+
+networks:
+  default:
+    driver: bridge
+    name: pangolin_frontend
+  dokploy-network:
+    external: true

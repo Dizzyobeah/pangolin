@@ -1,0 +1,6 @@
+config/db/
+config/key
+config/letsencrypt/
+config/logs/
+config/traefik/logs/
+.env
