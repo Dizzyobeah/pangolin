@@ -116,8 +116,8 @@ Dokploy writes File Mounts to the same folder (`files/` next to the compose code
 
 1. Open the compose service → **Advanced → Mounts → Add Mount → File**.
 2. File path: `pangolin/config.yml` (then repeat for `pangolin/traefik/traefik_config.yml` and `pangolin/traefik/dynamic_config.yml`).
-3. Content: paste the rendered text. Copy it from a shell on the host, e.g.
-   `cat "$(dirname "$(readlink -f ../code)")/files/pangolin/config.yml"`, or use the rendered values from `config/*.tmpl`.
+3. Content: paste the rendered text. It is in `files/pangolin/` inside your Dokploy compose folder on the host
+   (the folder that holds `code/`). Use `cat` on that file over SSH, or fill in the values from `config/*.tmpl` yourself.
 4. Save. Redeploy or restart `pangolin`, `gerbil` and `traefik`.
 
 Trade-offs:
