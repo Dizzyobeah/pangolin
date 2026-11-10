@@ -59,7 +59,9 @@ Steps (chosen ports: HTTP 8081, HTTPS 8444, HTTP/3 8444):
          advertisedPort: 8444
    ```
    Leave the rest (providers, `letsencrypt` resolver) alone.
-3. Recreate Traefik: **Settings → Web Server → Traefik → Reload** (or `docker rm -f dokploy-traefik` then restart the Dokploy service).
+3. Recreate Traefik. Host port bindings are fixed when the container is created, so a restart or reload keeps the old 80/443 bindings. Either:
+   - **Settings → Web Server → Traefik → Ports**, then **Save** (rebuilds the container), or
+   - Remove it and recreate it by hand (this run did not recreate it on Dokploy restart): `docker rm -f dokploy-traefik`, then `docker run -d --name dokploy-traefik --restart always --network dokploy-network -p 8081:8081 -p 8444:8444 -p 8444:8444/udp -v /etc/dokploy/traefik/traefik.yml:/etc/traefik/traefik.yml -v /etc/dokploy/traefik/dynamic:/etc/dokploy/traefik/dynamic -v /var/run/docker.sock:/var/run/docker.sock:ro traefik:v3.6.25` (use the image tag Dokploy pins; `v3.6.25` was used here).
 4. Check:
    ```bash
    docker ps --format '{{.Names}}\t{{.Ports}}' | grep dokploy-traefik   # 8081/8444 only
@@ -155,12 +157,20 @@ If `pangolin` still fails with "No configuration file found", check that `render
 and that `../files/pangolin/config.yml` exists on the host.
 
 ## 3. Site, web apps, WoW
-1. **Sites → Add** a Newt site, copy ID/secret into the Dokploy Environment tab (`NEWT_ID`, `NEWT_SECRET`), then redeploy so `newt` starts.
-   The site should show *online*.
-2. **HTTP resources** (SSO on): one per app, e.g. `dokploy.$DOMAIN` → `http://dokploy-traefik:8081`
+1. **Sites → Add → Pangolin Site** (Newt), e.g. `dokploy-host`. Ignore the `pangolin up site` command; copy only the ID/secret
+   into the Dokploy Environment tab (`NEWT_ID`, `NEWT_SECRET`), then **redeploy** (a restart keeps the old, empty env).
+   The site should show *online*. This site is for client/private resources (WoW).
+2. **Sites → Add → Local**, e.g. `lan`. Use it for every HTTP resource: Pangolin's Traefik runs on this host and reaches
+   LAN/Docker targets directly. Through the Newt site we got 502s: Newt on the same host as gerbil sends its tunnel
+   traffic to the public endpoint, which (presumably) needs hairpin NAT for UDP.
+3. **HTTP resources** on the `lan` site, **Authentication → Use Platform SSO** on, limited in Users & Roles:
+   one per app, e.g. `dokploy.$DOMAIN` → `http://dokploy-traefik:8081`
    (Host header is preserved, so Dokploy's routing still works). *Not* port 80 anymore.
-3. **Private resources**, type Host: `<HOST_LAN_IP>` TCP `3724` and `8085`, access = role `wow-players`. Invite friends into that role.
-4. On the live DB (ops step, not repo SQL):
+   LAN devices work too, e.g. Home Assistant `http://<HA_IP>:8123`. HA answers 400 until you add
+   `http: {use_x_forwarded_for: true, trusted_proxies: [<LAN_CIDR>]}` to its `configuration.yaml`. With SSO on, the HA
+   companion app can't log in. Use the browser, or the Pangolin client.
+4. **Private resources**, type Host: `<HOST_LAN_IP>` TCP `3724` and `8085`, access = role `wow-players`. Invite friends into that role.
+5. On the live DB (ops step, not repo SQL):
    ```sql
    UPDATE acore_auth.realmlist SET address='<HOST_LAN_IP>', localAddress='<HOST_LAN_IP>' WHERE id=1;
    ```
@@ -177,6 +187,9 @@ and that `../files/pangolin/config.yml` exists on the host.
 
 ## Gotchas
 - Never set `allow_raw_resources: true`: public raw TCP bypasses Pangolin auth.
-- Dokploy updates recreate Traefik from the env vars above; keep them on the service.
+- Keep the `TRAEFIK_*` env vars on the Dokploy service: whenever Dokploy creates `dokploy-traefik`, it takes the ports from them. Restarting the Dokploy service did **not** recreate a missing `dokploy-traefik` here (see step 1.3).
+- Pangolin's `traefik` shares gerbil's network (`network_mode: service:gerbil`). If gerbil is recreated or fails to start (for example because 80/443 were still taken), `traefik` keeps a dead network: every lookup fails with `network is unreachable`, the badger plugin doesn't load, and `acme.json` stays empty. Fix: recreate both together (redeploy in Dokploy).
+- `newt` starts even with an empty `NEWT_ID` and loops on `No newt found with that newtId`. Check `docker inspect newt --format '{{range .Config.Env}}{{println .}}{{end}}' | grep NEWT_ID`. If it's empty, set the env and redeploy.
+- Running `docker compose` by hand: Dokploy uses its own project name, so pass `-p "$(docker inspect pangolin --format '{{index .Config.Labels "com.docker.compose.project"}}')"` and `--no-deps`. Otherwise you get container-name conflicts.
 - Optional: bind SOAP `7878` to `127.0.0.1` in the azerothcore repo's `docker-compose.dokploy.yml`.
 - Optional: [dokploy-to-pangolin](https://github.com/orochibraru/dokploy-to-pangolin) auto-creates HTTP resources; it defaults to HTTPS :443 targets, so point it at `:8081` HTTP.
