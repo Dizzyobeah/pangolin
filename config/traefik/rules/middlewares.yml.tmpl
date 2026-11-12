@@ -1,0 +1,32 @@
+# From the Pangolin Traefik hardening guide. Applied to the websecure entrypoint (traefik_config.yml).
+http:
+  middlewares:
+    middlewares-secure-headers:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - OPTIONS
+          - PUT
+        hostsProxyHeaders:
+          - "X-Forwarded-Host"
+        stsSeconds: 63072000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        frameDeny: true # overwritten by customFrameOptionsValue
+        customFrameOptionsValue: "SAMEORIGIN"
+        contentTypeNosniff: true
+        browserXssFilter: false
+        customBrowserXSSValue: "0"
+        referrerPolicy: "same-origin"
+        contentSecurityPolicy: "upgrade-insecure-requests"
+        customResponseHeaders:
+          X-Robots-Tag: "none, noarchive, nosnippet, notranslate, noimageindex"
+          X-powered-by: ""
+          server: ""
+          Permissions-Policy: "camera=(), microphone=(), geolocation=()"
+
+    chain-secure:
+      chain:
+        middlewares:
+          - middlewares-secure-headers
