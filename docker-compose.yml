@@ -13,6 +13,7 @@ services:
       PANGOLIN_PREFIX: ${PANGOLIN_PREFIX:?set PANGOLIN_PREFIX}
       LE_EMAIL: ${LE_EMAIL:?set LE_EMAIL}
       PANGOLIN_SECRET: ${PANGOLIN_SECRET:?set PANGOLIN_SECRET}
+      CROWDSEC_BOUNCER_KEY: ${CROWDSEC_BOUNCER_KEY:?set CROWDSEC_BOUNCER_KEY}
     volumes:
       - ./config:/templates:ro
       - ../files/pangolin:/out
@@ -21,14 +22,22 @@ services:
       - -c
       - |
         set -e
-        apk add --no-cache gettext >/dev/null
-        mkdir -p /out/traefik /out/db /out/letsencrypt
-        V='$${DOMAIN} $${PANGOLIN_PREFIX} $${LE_EMAIL} $${PANGOLIN_SECRET}'
+        apk add --no-cache gettext curl >/dev/null
+        mkdir -p /out/traefik /out/db /out/letsencrypt /out/traefik/rules /out/traefik/logs /out/crowdsec/config /out/crowdsec/data
+        V='$${DOMAIN} $${PANGOLIN_PREFIX} $${LE_EMAIL} $${PANGOLIN_SECRET} $${CROWDSEC_BOUNCER_KEY}'
         # Render only files that are missing or empty, so a non-empty Dokploy File Mount (same folder) overrides a rendered file.
         render() { [ -s "$$2" ] || envsubst "$$V" < "$$1" > "$$2"; }
+        # GeoIP database for geo-blocking rules (fetched once; delete the file and redeploy to refresh).
+        GEO=/out/GeoLite2-Country.mmdb
+        if [ ! -s "$$GEO" ]; then
+          curl -fsSL https://github.com/GitSquared/node-geolite2-redist/raw/refs/heads/master/redist/GeoLite2-Country.tar.gz | tar -xz -C /tmp
+          mv /tmp/GeoLite2-Country_*/GeoLite2-Country.mmdb "$$GEO"
+        fi
         render /templates/config.yml.tmpl /out/config.yml
         render /templates/traefik/traefik_config.yml.tmpl /out/traefik/traefik_config.yml
-        render /templates/traefik/dynamic_config.yml.tmpl /out/traefik/dynamic_config.yml
+        render /templates/traefik/rules/dynamic_config.yml.tmpl /out/traefik/rules/dynamic_config.yml
+        render /templates/traefik/rules/tls.yml.tmpl /out/traefik/rules/tls.yml
+        render /templates/traefik/rules/middlewares.yml.tmpl /out/traefik/rules/middlewares.yml
 
   pangolin:
     image: docker.io/fosrl/pangolin:1.26.0
@@ -63,6 +72,7 @@ services:
       - 51820:51820/udp
       - 21820:21820/udp
       - 443:443
+      - 443:443/udp   # HTTP/3
       - 80:80
     networks:
       - default
@@ -73,15 +83,42 @@ services:
     container_name: traefik
     restart: unless-stopped
     network_mode: service:gerbil   # ports are published on gerbil
+    security_opt: [no-new-privileges:true]
     depends_on:
       render-config:
         condition: service_completed_successfully
       pangolin:
         condition: service_healthy
+      crowdsec:
+        condition: service_healthy
     command: [--configFile=/etc/traefik/traefik_config.yml]
     volumes:
       - ../files/pangolin/traefik:/etc/traefik:ro
+      - /etc/localtime:/etc/localtime:ro
+      - ../files/pangolin/traefik/logs:/var/log/traefik
       - ../files/pangolin/letsencrypt:/letsencrypt
+
+  # Bans abusive IPs: reads Traefik's access log, and Traefik's crowdsec middleware asks it about each request.
+  crowdsec:
+    image: docker.io/crowdsecurity/crowdsec:v1.6.11
+    container_name: crowdsec
+    restart: unless-stopped
+    depends_on:
+      render-config:
+        condition: service_completed_successfully
+    environment:
+      COLLECTIONS: crowdsecurity/traefik crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
+      BOUNCER_KEY_traefik: ${CROWDSEC_BOUNCER_KEY}
+    volumes:
+      - ../files/pangolin/crowdsec/config:/etc/crowdsec
+      - ../files/pangolin/crowdsec/data:/var/lib/crowdsec/data
+      - ./config/crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
+      - ../files/pangolin/traefik/logs:/var/log/traefik:ro
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
 
   newt:
     image: docker.io/fosrl/newt:1.20.0

@@ -85,6 +85,7 @@ Apps are unreachable from the internet from step 3 here until the HTTP resources
    PANGOLIN_PREFIX=pangolin
    LE_EMAIL=you@example.com
    PANGOLIN_SECRET=<openssl rand -hex 32>
+   CROWDSEC_BOUNCER_KEY=<openssl rand -hex 32>
    NEWT_ID=<leave empty until step 3>
    NEWT_SECRET=<leave empty until step 3>
    ```
@@ -97,7 +98,10 @@ The compose file mounts all runtime state from `../files/pangolin` instead of th
 | Host path (`../files/pangolin/...`) | Contents | Created by |
 |---|---|---|
 | `config.yml` | Pangolin config, rendered from `config/config.yml.tmpl` | render-config (first deploy) |
-| `traefik/traefik_config.yml`, `traefik/dynamic_config.yml` | Pangolin's Traefik config | render-config (first deploy) |
+| `traefik/traefik_config.yml`, `traefik/rules/{dynamic_config,tls,middlewares}.yml` | Pangolin's Traefik config | render-config (first deploy) |
+| `GeoLite2-Country.mmdb` | GeoIP database for geo-blocking, downloaded by render-config. Delete it and redeploy to refresh. | render-config (first deploy) |
+| `traefik/logs/` | Traefik access log, read by CrowdSec. Grows over time; set up rotation. | traefik |
+| `crowdsec/` | CrowdSec config and decision database | crowdsec |
 | `db/` | Pangolin SQLite database. **Losing it means losing users and resources.** | pangolin |
 | `key` | Gerbil WireGuard key. Losing it breaks every client's tunnel. | gerbil |
 | `letsencrypt/` | TLS certificates | traefik |
@@ -112,6 +116,26 @@ across deploys. So the compose file uses `../files`, and nothing needs to be cre
 Changing `DOMAIN`, `PANGOLIN_PREFIX`, `LE_EMAIL` or `PANGOLIN_SECRET` later does **not** update existing files.
 To pick up a change, edit the file on the host (`../files/pangolin/...`) or use Option B below, then restart the services.
 
+**GeoIP:** `config.yml` sets `server.maxmind_db_path` to the downloaded database. On an existing install the
+rendered `config.yml` is not updated, so add `maxmind_db_path: "./config/GeoLite2-Country.mmdb"` under `server:` by hand and restart `pangolin`.
+Then use Access Control rules or the Geo-blocking guide to create rules.
+
+**CrowdSec:** the `crowdsec` service reads Traefik's access log and Traefik's `crowdsec` middleware (bouncer plugin
+plus AppSec WAF) is applied to the `websecure` entrypoint. The bouncer key is `CROWDSEC_BOUNCER_KEY`; CrowdSec registers it
+at startup. On an existing install the rendered Traefik files are not updated: add the plugin, `accessLog` and entrypoint
+middleware from `config/traefik/traefik_config.yml.tmpl` and the `crowdsec` middleware from `rules/dynamic_config.yml.tmpl` by hand.
+Test with `docker exec crowdsec cscli decisions add --ip <YOUR IP> -d 1m --type ban`; check with `docker exec crowdsec cscli metrics`.
+Not included: host/SSH firewall bouncer, custom ban/captcha pages (see the Pangolin CrowdSec guide).
+
+**Traefik hardening** (Pangolin hardening guide): Traefik now loads a rules directory (`traefik/rules/`, watched):
+`tls.yml` (TLS 1.2-1.3, strict SNI, AEAD ciphers, curves), `middlewares.yml` (secure headers incl. HSTS preload, applied
+to the whole `websecure` entrypoint) and `dynamic_config.yml`. Static config adds OCSP, EC384 certs, `websecure` as default
+entrypoint with TLS options, and a permanent HTTP to HTTPS redirect. Compose adds `no-new-privileges`, HTTP/3 (`443/udp`).
+Existing install: `render-config` creates the new `rules/` files on next deploy, but `traefik_config.yml` is not updated, so
+copy the changes from `traefik_config.yml.tmpl` by hand (the `providers.file.directory` change is required).
+Deviations from the guide: ACME stays on HTTP challenge (no Cloudflare/wildcard), the 30m `readTimeout` is kept for long
+uploads, mTLS and DANE/TLSA are not set up. Headers like SAMEORIGIN apply to proxied apps too; override per app if one must be framed.
+
 ### 2.2a Option B: edit the config files in Dokploy File Mounts
 Use this if you want to edit the rendered config in the Dokploy UI instead of on the host.
 Dokploy writes File Mounts to the same folder as the rendered files, so a non-empty File Mount overrides the rendered file.
@@ -122,13 +146,13 @@ Dokploy writes File Mounts to the same folder as the rendered files, so a non-em
    ```bash
    docker exec pangolin cat /app/config/config.yml
    docker exec traefik  cat /etc/traefik/traefik_config.yml
-   docker exec traefik  cat /etc/traefik/dynamic_config.yml
+   docker exec traefik  cat /etc/traefik/rules/dynamic_config.yml  # likewise tls.yml, middlewares.yml
    ```
    On the host the same files are in `/etc/dokploy/compose/<appName>/files/pangolin/`. `<appName>` is the compose
    service's app name in Dokploy (`ls /etc/dokploy/compose/` lists them).
 2. Open the compose service → **Advanced → Mounts → Add Mount → File**.
 3. File path `pangolin/config.yml`, content = the output of the first command. Repeat with
-   `pangolin/traefik/traefik_config.yml` and `pangolin/traefik/dynamic_config.yml`.
+   `pangolin/traefik/traefik_config.yml` and `pangolin/traefik/rules/*.yml`.
    **Paste the content before saving.** An empty mount writes an empty file. `render-config` re-renders empty
    files on the next deploy, which replaces the mount content with the rendered version.
 4. Redeploy, or restart `pangolin`, `gerbil` and `traefik`.

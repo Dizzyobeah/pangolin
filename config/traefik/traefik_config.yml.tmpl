@@ -7,13 +7,26 @@ providers:
     endpoint: "http://pangolin:3001/api/v1/traefik-config"
     pollInterval: "5s"
   file:
-    filename: "/etc/traefik/dynamic_config.yml"
+    directory: "/etc/traefik/rules"
+    watch: true
 
 experimental:
   plugins:
     badger:
       moduleName: "github.com/fosrl/badger"
       version: "v1.8.0"
+    crowdsec:
+      moduleName: "github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin"
+      version: "v1.4.5"
+
+# CrowdSec reads this log to detect attacks.
+accessLog:
+  filePath: "/var/log/traefik/access.log"
+  bufferingSize: 100
+  filters:
+    statusCodes: ["100-599"]
+
+ocsp: {} # let Traefik check OCSP for certificates
 
 log:
   level: "INFO"
@@ -29,21 +42,33 @@ certificatesResolvers:
       httpChallenge:
         entryPoint: web
       email: "${LE_EMAIL}"
+      keyType: "EC384" # ECC certs; very old clients may not connect
       storage: "/letsencrypt/acme.json"
       caServer: "https://acme-v02.api.letsencrypt.org/directory"
 
 entryPoints:
   web:
     address: ":80"
+    http:
+      redirections: # https only
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
   websecure:
     address: ":443"
-    transport:
+    asDefault: true
+    transport: # kept deliberately: the guide drops it, but long uploads/streams need it (Traefik default is 60s)
       respondingTimeouts:
         readTimeout: "30m"
     http3:
       advertisedPort: 443
     http:
+      middlewares:
+        - crowdsec@file
+        - middlewares-secure-headers@file
       tls:
+        options: default
         certResolver: "letsencrypt"
       encodedCharacters:
         allowEncodedSlash: true
