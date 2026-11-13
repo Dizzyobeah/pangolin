@@ -23,7 +23,7 @@ services:
       - |
         set -e
         apk add --no-cache gettext curl >/dev/null
-        mkdir -p /out/traefik /out/db /out/letsencrypt /out/traefik/rules /out/traefik/logs /out/crowdsec/config /out/crowdsec/data
+        mkdir -p /out/traefik /out/db /out/letsencrypt /out/traefik/rules /out/traefik/logs /out/crowdsec/config/acquis.d /out/crowdsec/data
         V='$${DOMAIN} $${PANGOLIN_PREFIX} $${LE_EMAIL} $${PANGOLIN_SECRET} $${CROWDSEC_BOUNCER_KEY}'
         # Render only files that are missing or empty, so a non-empty Dokploy File Mount (same folder) overrides a rendered file.
         render() { [ -s "$$2" ] || envsubst "$$V" < "$$1" > "$$2"; }
@@ -33,6 +33,8 @@ services:
           curl -fsSL https://github.com/GitSquared/node-geolite2-redist/raw/refs/heads/master/redist/GeoLite2-Country.tar.gz | tar -xz -C /tmp
           mv /tmp/GeoLite2-Country_*/GeoLite2-Country.mmdb "$$GEO"
         fi
+        # CrowdSec log sources: copied (not bind-mounted) because a read-only mount inside /etc/crowdsec breaks its entrypoint.
+        cp /templates/crowdsec/acquis.d/*.yaml /out/crowdsec/config/acquis.d/
         render /templates/config.yml.tmpl /out/config.yml
         render /templates/traefik/traefik_config.yml.tmpl /out/traefik/traefik_config.yml
         render /templates/traefik/rules/dynamic_config.yml.tmpl /out/traefik/rules/dynamic_config.yml
@@ -112,7 +114,6 @@ services:
     volumes:
       - ../files/pangolin/crowdsec/config:/etc/crowdsec
       - ../files/pangolin/crowdsec/data:/var/lib/crowdsec/data
-      - ./config/crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
       - ../files/pangolin/traefik/logs:/var/log/traefik:ro
     healthcheck:
       test: ["CMD", "cscli", "lapi", "status"]
